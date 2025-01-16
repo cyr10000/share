@@ -1,0 +1,1718 @@
+#!/bin/bash
+VER="V1.0 By chenyr 2024.10.18 Final" #2025.01.09
+
+#export remote_srv='git@bitbucket.org:faurepo'	#git service设定，指定git clone时固定的服务地址。
+#remote_srv=''					#unset
+#remote=''                                    	#default remote 读取顺序为：.gitbare.conf > .remote > $remote_srv #缺省：git@bitbucket.org:faurepo
+
+remote_default='git@bitbucket.org:faurepo' #remote默认值设定，此为ELP系列项目专用 remote=$remote_default
+#git@github.com:cyr1000      #git@github.com:cyr1000/tools.git
+
+#=====================================================================
+#2025.01.09 .gitbare.conf 过滤行 '#Default Remote:' 和 '## --- END --- ##'
+#2025.01.06 优化软连接 ln -s -f ../$xml .gitbare/manifest.xml
+#2024.10.18 追加 gitx config 显示 .gitbare/.gitbare.conf 内容
+#2024/09/29 追加特定情况变量设定。当仅需要初始化，不自动同步时，需定义变量： export f_init_only=1
+#2024/09/18 支持关键字 extend-project 
+#主要支持关键字：remote fetch default remote include project name path revision copyfile linkfile dest src extend-project ...
+#2024/08/23 支持 Windows 磁盘格式如：NTFS/FAT32/exFAT 等使用 copy .git 方式
+#By chenyr 2023/12/21 ~ 2024/05/13 ~ 2024/07/02 ~ 2024/08/27 #支持 Linux ext4、Btrfs、XFS 等
+#export remote_srv='git@bitbucket.org:faurepo' #注意设定git service
+#参考repo init / repo sync /repo -m 等用法
+#manifest.xml 中使用的"path="等路径中建议不使用空格
+#read manifest.xml # 参考repo工具manifest.xml文件格式
+#$path	$name	$revision #.gitbare/.gitbare.conf 格式
+##Prject Root##
+#gitx mmc.xml
+#gitx init -u git@bitbucket.org:faurepo/emi23sda-build-manifest -b master -m mmc.xml #完整模板示例 #初始化，可不用。
+#gitx init -u git@bitbucket.org:faurepo/emi23sda-build-manifest -m mmc26.xml #不加 -m 使用GIT服务器默认分支
+#gitx init -u git@bitbucket.org:faurepo/eni24rse-build-manifest -m rse.xml #不加 -m 默认为 default.xml
+#gitx init git@bitbucket.org:faurepo/eho25sa-build-manifest -m 25sa64.xml
+#gitx init git@bitbucket.org:faurepo/eho25sa-build-manifest 25saSI.xml
+#gitx init 25saSI.xml
+#gitx -m mmc64.xml
+#gitx sync [REPO_PATH] [-f] #REPO_PATH 会智能转换，xml的path路径，相对路径，绝对路径都支持
+#gitx [-f]
+#gitx -n
+#gitx -l
+#gitx checkout branch #gitx co branch
+#gitx -c cmd
+#gitx manifest [release_manifest.xml]
+#.gitbare/.gitbare.conf #可临时修改同步内容，再执行 gitx 进行同步。
+#.gitbare/manifest.xml 最终都转化为 .gitbare/.gitbare.conf
+
+SHF=`echo ${BASH_SOURCE[0]}` #=$0 #实际路径或gzexe解压后路径
+SH=`echo ${BASH_SOURCE[0]} | awk -F "/" '{print $NF}'`
+PWD0=$PWD
+SHF0="`which $SH 2>/dev/null`" #执行文件路径，脚本最初始路径[解压前也支持]
+#echo "$0 == $SHF | $PWD0 + $SH = $SHF0"
+#echo -e "\033]0;$SH $* [$(pwd)]\007" #标题Title
+gitconf=.gitbare/.gitbare.conf
+#xml=$gitconf #.gitbare/.gitbare.conf #.gitbare/manifest.xml
+#rm -f $gitconf
+
+HELP_(){ #只调用HELP 精简版HELP
+	#xml=mmc.xml
+	if [ "$f_init_only" = "" ];then f_init_only=0;fi
+	echo -e """
+\033[1m\033[31m--=== 精简使用帮助 $VER ===--\033[0m
+
+$SH --help   #帮助说明
+$SH install  #安装gitx #默认：/usr/bin
+
+#Please Run In Prject Root#
+#初始化并同步示例：
+*当仅需要初始化，不自动同步时，需定义变量： export f_init_only=1  # 当前：[ f_init_only = $f_init_only ]
+$SH init git@bitbucket.org:faurepo/eho25sa-build-manifest -m 26saSI.xml            # 初始化简化指令，快速切换：$SH 26saSI.xml
+$SH init -u git@bitbucket.org:faurepo/emi23sda-build-manifest -m mmc25.xml         # 初始化简化指令，默认为master分支
+$SH init -u git@bitbucket.org:faurepo/emi23sda-build-manifest -m mmc26.xml         # 初始化简化指令，默认为master分支
+$SH init -u git@bitbucket.org:faurepo/emi23sda-build-manifest -b master -m mmc.xml # -b 指定分支或tag #初始化使用，可以不使用。
+$SH init -u git@bitbucket.org:faurepo/eni24rse-build-manifest -m rse.xml -b master # -m 指定xml文件，不指定默认为 default.xml。
+$SH init -u git@bitbucket.org:faurepo/eho25sa-build-manifest -b HNH1A0922000_20230321 -m release_25sa.xml # -b 指定TAG，-m 指定xml。
+\033[32m
+$SH *.xml               # 切换*.xml，若找不到则搜索.gitbare/manifests/*.xml #会更新.gitbare.conf
+$SH -m *.xml            # 切换.gitbare/manifests/*.xml #需要先初始化
+
+$SH [-f]                # 同步代码[仅git pull]：仅读取 .gitbare/.gitbare.conf ，-f 表示强制同步，默认会缓存修改并强制切换分支。
+$SH sync [-f]           # 同步代码[checkout & pull]：重新读取 .gitbare/manifests.xml 并转换为 .gitbare.conf 再同步，-f 表示强制同步。
+$SH sync REPO_PATH [-f] # 同上，但仅同步单个仓库，REPO_PATH指定相对路径或绝对路径或.gitbare.conf第一列值，也同manifests.xml中path值。
+
+$SH -l                  # 执行git checkout，不执行git pull
+$SH checkout branch     # 切换分支
+
+$SH tag                 # 查看.gitbare/manifests Tag & Branch 或使用 $SH branch
+$SH ll                  # 查看manifest.xml 或使用 $SH ls
+\033[0m
+
+# $gitconf 可临时修改内容，再执行 $SH 进行同步。"""
+sleep 0.3
+}
+
+HELP(){
+	HELP_
+	
+	#使用此精简说明定义，以下HELP(){}要删除
+}
+
+
+HELP(){ #只调用HELP 完整版HELP
+	if [ "$f_init_only" = "" ];then f_init_only=0;fi
+	#xml=mmc.xml
+	echo -e """
+\033[1m\033[31m--=== 使用帮助 $VER ===--\033[0m
+
+#本工具是repo工具的简易替代品，仅针对基本的 manifest.xml 格式适用。
+#主要支持关键字：remote fetch default remote include project name path revision copyfile linkfile dest src extend-project ...
+
+$SH -h|--help|help #帮助说明 #或用：$SH /?
+$SH setup   [path] #安装gitx #默认：~/bin
+$SH install [path] #安装gitx #默认：/usr/bin
+
+#Please Run In Prject Root#
+#初始化并同步示例：
+*当仅需要初始化，不自动同步时，需定义变量： export f_init_only=1  # 当前：[ f_init_only = $f_init_only ]
+$SH init -u git@bitbucket.org:faurepo/emi23sda-build-manifest -b master -m mmc.xml   # -b 指定分支或tag #初始化使用，可以不使用。
+$SH init -u git@bitbucket.org:faurepo/emi23sda-build-manifest -b master -m mmc25.xml # -b 指定分支或tag # 初始化指定：mmc25.xml
+$SH init -u git@bitbucket.org:faurepo/emi23sda-build-manifest -b master -m mmc26.xml # -b 指定分支或tag # 初始化指定：mmc25.xml
+$SH init -u git@bitbucket.org:faurepo/eni24rse-build-manifest -m rse.xml -b master   # -m 指定xml文件，不指定默认为 default.xml
+$SH init git@bitbucket.org:faurepo/eho25sa-build-manifest 25saSI.xml                 # 初始化精简指令，快速切换：$SH 25saSI.xml
+$SH init git@bitbucket.org:faurepo/eho25sa-build-manifest 26saSI.xml                 # 初始化精简指令，快速切换：$SH 26saSI.xml
+$SH init -u git@bitbucket.org:faurepo/eho25sa-build-manifest -b HNH1A0922000_20230321 -m release_25sa.xml # -b 指定TAG，-m 指定xml
+$SH init 25saSI.xml     # 初始化精简指令，必须存在 .gitbare/manifests/.git 仓库，会切换到默认分支并同步更新。
+# 注：指定 .gitbare/manifests 仓库 tag 完整写法：refs/tags/TAG-NAME，branch也可以写成：refs/heads/Branch-NAME
+\033[32m
+$SH *.xml               # 切换*.xml，若找不到则搜索.gitbare/manifests/*.xml #会更新.gitbare.conf
+$SH -m *.xml            # 切换.gitbare/manifests/*.xml，但不自动进行同步，需要再执行$SH [sync]。#前提有初始化过
+
+$SH [-f]                # 同步代码[仅git pull]：仅读取 .gitbare/.gitbare.conf ，-f 表示强制同步，默认会缓存修改并强制切换分支。
+$SH sync [-f]           # 同步代码[checkout & pull]：重新读取 .gitbare/manifests.xml 并转换为 .gitbare.conf 再同步，-f 表示强制同步。
+$SH sync REPO_PATH [-f] # 同上，但仅同步单个仓库，REPO_PATH指定相对路径或绝对路径或.gitbare.conf第一列值，也同manifests.xml中path值。
+
+$SH -n                  # 执行git pull，不执行git checkout ，可直接执行 $SH
+$SH -l                  # 执行git checkout，不执行git pull
+$SH checkout branch     # 切换分支
+$SH co branch           # 切换分支
+
+$SH -c cmd              # 类似repo forall -c \"cmd\" 循环执行，注释或目录不存在时不执行cmd，当设置 export f_forall=1 每行都执行cmd。
+$SH tag                 # 查看.gitbare/manifests Tag & Branch 或使用 $SH taglist | $SH branch | $SH branchlist 
+$SH ll                  # 查看.gitbare/manifests 列表，或使用 $SH ls
+$SH config              # 显示.gitbare/.gitbare.conf 内容，或使用 $SH gitbare|conf|gitconf
+
+$SH xml [release_gitbare.conf]      #导出当前各仓库SHA1，默认输出文件名为：release_gitbare.conf
+$SH manifest [release_manifest.xml] #导出当前各仓库SHA1，默认输出文件名为：release_manifest.xml
+\033[0m
+
+# $gitconf 可临时修改内容，再执行 $SH 进行同步。
+# manifest.xml 文件格式请参考repo工具中manifest.xml文件格式。
+# manifest.xml 文件中使用的 'path=' 指定路径，请不要使用空格。
+# .gitbare/manifest.xml 最终都被转化为 .gitbare/.gitbare.conf，同时设定Default Remote。
+
+# Default Remote 缺省读取顺序为：.gitbare.conf > .remote > $remote_srv #缺省：git@bitbucket.org:faurepo
+# Default Remote【Git Service】默认值设定，未执行 $SH init 初始化且非默认值时务必重新设定，示例如下：
+\033[1m\033[33mexport remote_srv='git@bitbucket.org:faurepo'\033[0m # 根据项目需要在脚本调用前可对 remote_srv 进行缺省设定。"""
+sleep 0.3 #因为clear所以HELP最好加 sleep 0.3，避免反应慢重复显示帮助。
+}
+#HELP #调用HELP函数应在所有变量设置之后
+
+#-----------------------------------------
+
+#gitx安装
+if [ "$*" = "setup" ];then # $HOME/bin
+	echo -e "\033[1m\033[31m--== Install gitx ==--\033[0m" #红色高亮
+	SH=gitx #强制更名
+	if [ ! -f $HOME/bin/$SH ];then #Set PATH
+		mkdir -p $HOME/bin>/dev/null 2>&1
+	fi
+	if [ ! -f $HOME/bin/$SH ];then
+		cp -f $SHF0 $HOME/bin/$SH>/dev/null 2>&1 #不加密使用$SHF，加密时拷贝使用$SHF0
+		chmod 777 $HOME/bin/$SH>/dev/null 2>&1
+	fi 
+	if [[ "$PATH:" != *'~/bin:'* ]];then #不在$PATH中
+		bashrc=$HOME/.bashrc
+		if [ `cat $bashrc 2>/dev/null | grep -w 'PATH=~/bin' | wc -l` -gt 0 ];then echo;else echo 'export PATH=~/bin:$PATH'>>$bashrc;fi
+	fi
+	exit
+elif [ "$1" = "install" ] || [ "$1" = "setup" ];then #/usr/bin
+	echo -e "\033[1m\033[31m--== Install gitx ==--\033[0m" #红色高亮
+	SH=gitx #强制更名
+	f_sudo=0
+	install_path="$2"
+	if [ "$install_path" = "" ];then
+		install_path=/usr/bin
+	elif [ "${install_path::1}" = "." ];then
+		install_path=$PWD${install_path:1}
+	elif [ "${install_path::1}" != "/" ] && [ "${install_path::1}" != "~" ];then
+		install_path=$PWD/$install_path
+	fi
+	echo Install Path : $install_path	
+	if [ ! -d "$install_path" ];then
+		mkdir -p $install_path>/dev/null 2>&1
+		if [ $? -gt 0 ];then #返回0为可写OK，1为NG
+			sudo -v #sudo 权限
+			sudo mkdir -p $install_path>/dev/null 2>&1
+			f_sudo=1
+		fi			
+	fi
+	test -w $install_path
+	if [ $? -gt 0 ];then #返回0为可写OK，1为NG
+		sudo -v #sudo 权限
+		f_sudo=1
+	fi
+	if [ "$f_sudo" = "1" ];then
+		sudo cp -f $SHF0 $install_path/$SH>/dev/null 2>&1
+		sudo chmod 777 $install_path/$SH>/dev/null 2>&1
+	else
+		cp -f $SHF0 $install_path/$SH>/dev/null 2>&1 #加密时不要拷贝
+		chmod 777 $install_path/$SH>/dev/null 2>&1
+	fi
+	if [[ "$PATH:" != *$install_path:* ]];then #不在$PATH中
+		bashrc=$HOME/.bashrc
+		if [ `cat $bashrc 2>/dev/null | grep -w "PATH=$install_path" | wc -l` -gt 0 ];then echo;else echo "export PATH=$install_path:"'$PATH'>>$bashrc;fi
+	fi
+	exit
+else
+	:
+fi
+
+_par=$*
+###获取 .gitbare 根目录 ####
+GetRootPlatform(){
+pushd .>/dev/null #popd>/dev/null
+	#存在平台确认
+	#获取平台.gitbare所在目录
+	RootPlatform=$(echo "$PWD" | sed 's/.gitbare/\n/g'| awk -F "\n" '{print $1F}') #以.gitbare为分割 $1F第一个，$NF最后一个分支 #awk -F " "以空格和\n分割
+	#echo $RootPlatform #$RootPlatform 最后可能含有/	
+	cd "$RootPlatform" 2>/dev/null
+	PWD_=$PWD
+	RP=$PWD
+	COUNTER=1
+	f_prj=0
+	while [ "$COUNTER" -lt 30 ]; do
+		if [ ! -d .gitbare ];then
+			cd  ..
+		else
+			f_prj=1
+			COUNTER=100
+		fi
+	  RP=$PWD
+	  COUNTER=$(($COUNTER+1))
+	done
+	
+	if [ "$COUNTER" -eq 100 ];then
+		:
+	else
+		cd "$PWD_"				
+	fi
+	if [ $f_prj = 1 ];then #存在平台
+		RootPlatform=$RP #$RootPlatform 最后不含/
+	else
+		mkdir -p .gitbare #不存在平台，创建。
+	fi
+	
+	cd "$RootPlatform"
+	PWD_n=${PWD##*/} #获取当前目录名 (/时为空)
+	Root=$(pwd)/..
+	RootPlatform0=$PWD
+	if [ "${RootPlatform: -1}" != "/" ];then #最后一个不是'/'时 #${RootPlatform:${#RootPlatform}-1}
+		RootPlatform0="$RootPlatform" #最后不含/
+		RootPlatform="$RootPlatform/" #最后含/
+	else
+		RootPlatform0="${RootPlatform::-1}"  #最后一个不带'/' #${#RootPlatform}-1}
+	fi
+popd>/dev/null
+}
+GetRootPlatform
+Root="$RootPlatform0"
+Root_="$RootPlatform"
+cd "$Root"
+#echo $Root_
+#echo $Root
+#echo $PWD
+gitbare_manifests="${Root_}.gitbare/manifests"
+ln -s -f .gitbare .gitbare-ln-test&>/dev/null
+
+if [ $? -eq 1 ];then
+	#f_cp=1 #使用 rsync -avh --delete manifests.git/ .git/ #镜像拷贝镜像同步
+	cmd_gitdata='rsync -avh --delete $Root_.gitbare/$path.git/ $path/.git' #镜像拷贝镜像同步 #Windows磁盘分区格式
+	echo "建议使用 Linux ext4 磁盘分区格式"
+	echo
+	sleep 1
+else
+	#echo "建议使用 Linux ext4 磁盘分区格式" # 支持 Unix/Linux 符号链接的文件系统（如 ext4、Btrfs、XFS 等）
+	cmd_gitdata='ln -s -f $relative_path.gitbare/$path.git $path/.git'
+	rm -f .gitbare-ln-test
+fi
+
+if [ "$*" = "tag" ] || [ "$*" = "branch" ] || [ "$*" = "taglist" ] || [ "$*" = "branchlist" ];then #使用tag时和branch为智能排序
+	if [ ! -f "$gitbare_manifests/.git/config" ];then exit;fi
+	git -C "$gitbare_manifests" fetch 2>/dev/null
+	branchlist="`git -C "$gitbare_manifests" branch -a --color=always`"
+	if ([ `echo "$branchlist"|wc -l` -gt 10 ] && [ "$*" = "tag" ]) || [ "$*" = "taglist" ];then #2023/04/27
+		echo -e "\033[1m\033[34m-------========== Branch: ==========-------\033[0m"
+		#git -C "$gitbare_manifests" branch -a --color=always|grep '' #grep '' 为了一次性全部显示
+		echo "$branchlist"
+		echo -e "\033[1m\033[35m-------========== TAG: ==========-------\033[0m"
+		#git -C "$gitbare_manifests" tag --color=always|grep '' #为了一次性全部显示
+		git -C "$gitbare_manifests" tag --sort=creatordate|cat #cat 为了一次性全部显示 #--color=always #git tag --sort=-creatordate #git tag 时间逆序排序 - 学习 -
+	else
+		echo -e "\033[1m\033[35m-------========== TAG: ==========-------\033[0m"
+		#git -C $gitbare_manifests tag --color=always|grep '' #为了一次性全部显示
+		git -C "$gitbare_manifests" tag --sort=creatordate|cat #cat 为了一次性全部显示 #--color=always #git tag --sort=-creatordate #git tag 时间逆序排序 - 学习 -	
+		echo -e "\033[1m\033[34m-------========== Branch: ==========-------\033[0m"
+		#git -C $gitbare_manifests branch -a --color=always|grep '' #grep '' 为了一次性全部显示
+		echo "$branchlist"
+	fi
+	exit
+	#-- 学习 --
+	git tag --sort=creatordate|cat #按创建者时间顺序排序 #cat 为了一次性全部显示 #--color=always #git tag --sort=-creatordate #git tag 时间逆序排序 - 学习 -
+	git tag --sort=committerdate|cat #按提交者时间顺序排序 ，--sort=-committerdate #按提交者时间逆序排序
+
+fi
+
+echo -e "\033[39mRoot Path : \033[31m$PWD\033[0m"
+if ([ "$*" = "ls" ] || [ "$*" = "ll" ]) && [ -d "$gitbare_manifests" ];then #查看manifest.xml
+	if [ "$*" = "ll" ];then
+		ls -alF --color=always "$gitbare_manifests"
+	else
+		ls -l --color=always "$gitbare_manifests"
+	fi
+	exit
+fi
+f_init=0
+f_xml=0 #1:使用.gitbare/.gitbare.conf，0:使用.gitbare/manifest.xml
+f_cmd=0
+
+#mkdir -p .gitbare
+xml0=""
+xml_manifest=""
+L_par=""
+#xml_url='git@github.com:git-lfs/git-lfs.git' <=> ssh://git@github.com/git-lfs/git-lfs.git
+INIT_M(){
+	xml_url=$2
+	if [[ "$xml_url" = *://*/* ]];then #初始化格式
+		remote=`echo "$xml_url"|awk -F "/" '{print $1}'`//`echo "$xml_url"|awk -F "/" '{print $3}'` #ssh://git@github.com
+	else
+		if [ "$1" = "init" ];then
+			remote=${xml_url%%/*} #git@github.com:git-lfs
+		fi
+	fi
+	#rm -f $gitconf #最后处理
+	#par="$*"
+	par=" $*" #加了空格 #2023/03/31
+	#echo $par
+	if [[ "$par" = *" -m "* ]];then
+		xml="${par##* -m }" #截取最后一个 -m 后面所有字符串 #${par#* -m } 截取第一个 -m 后面所有字符串
+		xml="${xml%% -*}" #截取保留最小左边 #2023/04/21 #字符串截取
+		#echo  "${xml%% -b *}" #截取保留最小左边
+		#echo  "${xml%% -*}"
+		#echo  "${xml% -b *}" #截取保留最大左边
+		_m_xml=" -m $xml"
+	elif [[ "$par" = " init "* ]]&&([[ "$par" = *" "*".xml" ]]||[[ "$par" = *" "*".xml "* ]]);then #只能处理 2023/4/28 #没有 -m 但有 *.xml，取最后一个.xml
+		L_par="${par%.xml*}" #最大左边
+		xml=`echo ${L_par##* }`".xml"
+		_m_xml=" -m $xml"
+	else
+		xml=default.xml
+		_m_xml=""
+	fi
+
+	if [[ "$par" = *" -u "* ]];then #方法三使用 #提取-u有效参数
+		xml_url="${par##* -u }" #截取最后一个 -u 后面所有字符串
+		xml_url="${xml_url%% -*}" #截取保留最小左边 #2023/04/21 #字符串截取
+	#elif [[ "$par" = *" init "* ]];then #方法三使用 #提取-u有效参数 # -u 默认已被过滤
+	elif [ "$1" = "init" ];then #方法三使用 #提取-u有效参数 # -u 默认已被过滤
+		xml_url="${par##* init }" #截取最后一个 init 后面所有字符串
+		xml_url="${xml_url%% -*}" #截取保留最小左边 #2023/04/21 #字符串截取		
+	else
+		xml_url=""
+	fi
+	if [[ "$par" = *" -b "* ]];then #方法三使用 #提取-b有效参数
+		R_xml_branch="${par##* -b }" #截取最后一个 -b 后面所有字符串 #${par#* -b } 截取第一个 -b 后面所有字符串 # master *.xml abc
+		xml_branch="${R_xml_branch%% -*}" #截取保留最小左边 #2023/04/21 #字符串截取 -b master
+		if [ "$R_xml_branch" = "$xml_branch" ];then #只能提取*.xml #= master *.xml
+			if ([[ "$R_xml_branch" = *" $xml" ]] || [[ "$R_xml_branch" = *" $xml "* ]]) && [ "$L_par" != "" ];then # master *.xml abc
+				xml_branch="${R_xml_branch% $xml*}" #*.xml分隔，截取最大左边 #master
+			else			
+				xml_branch="${R_xml_branch%% *}" #空格分隔 #截取保留最小左边 #master
+			fi
+		fi
+		_b_xml_branch=" -b $xml_branch" 
+	else
+		xml_branch=""
+		_b_xml_branch=""
+	fi
+
+	if [ "$1" = "init" ];then
+		#if [ "$L_par" != "" ];then
+		#	par="${par% $xml*}" #最大左边
+		#else
+		#	par="${par%% *}" #空格分隔 #截取保留最小左边
+		#fi
+		
+		#if [ "$L_par" != "" ];then
+		#	par="${par% $xml*}" #最大左边
+		#fi
+		
+		if [ "$L_par" != "" ];then
+			xml_url="${xml_url% $xml*}" #最大左边
+		fi	
+		
+	fi
+	if [ "$1" = "-m" ];then
+		par=${par:3}
+	else #init
+		par=${par:5}
+	fi
+
+	if [ "$1" = "init" ];then
+		#par=${par%% -m *} #方法一 #截取第一个 -m 前面所有字符串 #${par% -m *} 截取最后一个 -m 前面所有字符串
+		#par=${par//$_m_xml/} #方法二 #替换
+		#替换：${变量/查找/替换值} 变量与查找间有一个"/"表示替换第一个，有"//"表示替换所有,当查找中出现了：”/”请加转义符”\/”表示。
+		par="$xml_url$_b_xml_branch" #方法三 #重新组合只提取有效参数
+		#echo $par
+	fi
+	if [ "$1" = "init" ];then
+		echo -e "\033[32m* $par\033[0m"
+	fi
+	echo -e "\033[33m* $xml\033[0m"
+	
+	if [ "$1" = "init" ];then #
+		if [[ "$2" = *"://"* ]] || [[ "$2" = *"git@"* ]];then #2023/04/28
+			rm -rf $gitbare_manifests
+			#git clone $par .gitbare/manifests 2>/dev/null
+			git clone $par $gitbare_manifests 2>/dev/null||(git clone $xml_url $gitbare_manifests;git -C $gitbare_manifests checkout $xml_branch) #2023/04/28
+			#mkdir -p .gitbare
+		   #echo $remote>.gitbare/.remote
+		else
+			git -C $gitbare_manifests log>/dev/null 2>&1
+			if [ $? -eq 0 ];then
+				LANG0=`echo $LANG`;export LANG=C				
+				origin_default_branch=`git -C $gitbare_manifests remote show $(git -C $gitbare_manifests remote)|grep 'HEAD branch'|cut -d' ' -f5` #获取远端默认分支 - 学习 -
+				export LANG=$LANG0
+				git -C $gitbare_manifests checkout $origin_default_branch -f >/dev/null 2>&1
+				git -C $gitbare_manifests checkout . >/dev/null 2>&1
+				git -C $gitbare_manifests pull
+			fi
+		fi
+	fi
+	
+	xml_manifest=$gitbare_manifests/$xml #.gitbare/manifests/$xml
+	if [ "$xml" != "" ];then
+		if [ -f $xml_manifest ];then
+			ln -s -f manifests/$xml .gitbare/manifest.xml&>/dev/null
+			if [ $? -eq 1 ];then
+				#if [ "`df -T "$(pwd)" | tail -n 1 | awk '{print $2}'`" != ext4 ];then
+				#	echo "建议使用 Linux ext4 磁盘分区格式" # 支持 Unix/Linux 符号链接的文件系统（如 ext4、Btrfs、XFS 等）
+				#fi
+				echo \
+'''<?xml version="1.0" encoding="UTF-8"?>
+<manifest>
+	<include name="'''manifests/$xml'''"/>
+</manifest>'''>.gitbare/manifest.xml
+			fi
+
+		elif [ -f $PWD0/$xml ];then		
+			xml_manifest=$PWD0/$xml
+			ln -s -f ../$xml .gitbare/manifest.xml&>/dev/null #$PWD0/$xml 改为相对路径 2025.01.06
+			if [ $? -eq 1 ];then
+				echo \
+'''<?xml version="1.0" encoding="UTF-8"?>
+<manifest>
+	<include name="'''$xml'''"/>
+</manifest>'''>.gitbare/manifest.xml
+			fi
+		elif [ -f $xml ];then #绝对路径 2025.01.06
+			xml_manifest=$xml
+			ln -s -f $xml .gitbare/manifest.xml&>/dev/null 
+			if [ $? -eq 1 ];then
+				echo \
+'''<?xml version="1.0" encoding="UTF-8"?>
+<manifest>
+	<include name="'''$xml'''"/>
+</manifest>'''>.gitbare/manifest.xml
+			fi
+		else
+			echo "error: $xml_manifest is not exist."
+			exit
+		fi		
+	fi
+	xml0=`ls -l "$Root/.gitbare/manifest.xml" 2>/dev/null|cut -d ">" -f 2` # ../*/*.xml # manifests/default.xml
+	echo -e "\033[1m\033[31mmanifest.xml --> $xml0\033[0m"
+	echo
+	#if [ "$1" = "init" ];then exit;fi
+	#if [ "$1" = "init" ];then f_init=1;fi
+	f_init=1
+	if [ "$1" = "init" ];then f_init=2;fi
+	#xml_manifest=.gitbare/manifests/$xml
+	echo "#Default Remote:$remote">$gitconf #重置 .gitbare/.gitbare.conf #2023/04/24 #rm -f $gitconf
+	echo $remote>.gitbare/.remote
+}
+
+if [ "$1" = "init" ] && [ "$2" = "-u" ];then
+	INIT_M init ${_par:8}
+elif [ "$1" = "init" ] || [ "$1" = "-m" ];then
+	INIT_M $*
+fi
+
+#origin=origin
+if [ -f "$gitconf" ];then #优先使用 #2023/04/24
+	Default_Remote=`cat .gitbare/.gitbare.conf |grep "^#Default Remote:"|head -1`
+	remote=${Default_Remote/'#Default Remote:'/}
+	#remote=`echo $remote` #有效去前后空格等
+	#remote=`echo "$remote"|cut -f 1` #有效去空格
+fi
+if [ "${remote// /}" = "" ];then #替换去空格
+	if [ -f .gitbare/.remote ];then
+		remote=`cat .gitbare/.remote`
+	fi
+fi
+remote=`echo $remote` #有效去前后空格等 - 学习 - 
+if [[ "$remote" = *":"* ]] || [[ "$remote" = *"@"* ]];then
+	:
+else
+	if [ "$remote_srv" != "" ];then
+		remote=$remote_srv
+		unset export remote_srv #unset remote_srv
+	else # [ "$remote_srv" = "" ];then #export remote_srv='git@bitbucket.org:faurepo' #环境变量可以设置
+		#exit
+		remote="$remote_default" #'git@bitbucket.org:faurepo' #remote默认值设定，此为ELP系列项目专用
+		#remote='ssh://bitbucket.org/faurepo'
+		
+		#git@aaa:bbb/ccc 格式 repo manifest.xml 需要转换
+		#git@github.com:git-lfs/git-lfs.git <=> ssh://git@github.com/git-lfs/git-lfs.git <=> ssh://github.com/git-lfs/git-lfs.git #SSH
+		#remote='git@github.com:git-lfs'
+		#remote='ssh://git@github.com' #或 remote='ssh://git@github.com/git-lfs'
+		#git@github.com:git-lfs/git-lfs.git 标准转换 ssh://git@github.com/git-lfs/git-lfs.git
+		#https://github.com/git-lfs/git-lfs.git #HTTPS
+		#remote='https://github.com/git-lfs' #或 remote='https://github.com'
+		
+		#gh repo clone git-lfs/git-lfs #GitHub CLI
+		
+		#<remote fetch="ssh://git@bitbucket.org/faurepo" name="origin" review="bitbucket.org:faurepo"/>
+		#<remote fetch="ssh://bitbucket.org/faurepo" name="origin" review="bitbucket.org:faurepo"/>
+	fi
+fi
+
+echo -e "\033[1m\033[33m$remote\033[0m" #黄色高亮
+sleep 1
+
+f_help=0
+f_force_sync=0
+#xml=$1 #mmc.xml
+xml=$gitconf #.gitbare/.gitbare.conf #.gitbare/manifest.xml
+if [ "$1" = "manifest" ] || [ "$1" = "xml" ];then
+	f_cmd=1
+elif [ "$1" = "" ] && [ ! -f "$gitconf" ] && [ ! -f "$Root/.gitbare/manifest.xml" ];then
+	f_help=1
+elif [ "$1" = "" ] || [ "$1" = "-f" ] || [ "$1" = "sync" ];then
+	#xml=mmc.xml
+	#xml0=.gitbare/manifest.xml
+	xml0=`ls -l "$Root/.gitbare/manifest.xml" 2>/dev/null|cut -d ">" -f 2` # ../*/*.xml # manifests/default.xml
+	xml=.gitbare/${xml0:1} #.gitbare/manifests/default.xml
+	if ([ -f "$gitconf" ] && [ "$remote" != "" ] && ([ "$1" = "" ] || [ "$1" = "-f" ])) || [ "$xml" = ".gitbare/" ];then
+		if ([ "$xml" = ".gitbare/" ] || [ ! -f ".gitbare/manifest.xml" ]) && [ "$1" = "sync" ];then
+			echo -e "\033[1m\033[41m.gitbare/manifest.xml is no exist.\033[0m"
+			sleep 2
+		else
+			echo -e "\033[1m\033[32mmanifest.xml ->$xml0\033[0m [No Use]" #绿色高亮 # manifests/25sa64.xml
+		fi
+		xml=$gitconf
+		f_xml=1 #使用$gitconf
+	else #[ "$1" = "sync" ] 优先读取 manifest.xml
+		echo -e "\033[1m\033[31m.gitbare/manifest.xml ->$xml0\033[0m" #红色高亮 # manifests/25sa64.xml
+		#gitbare_manifests="$Root/.gitbare/manifests"
+		if [ -d "$gitbare_manifests" ];then #gitbare/manifests
+			echo -e "\033[32m==> Update .gitbare/manifests\033[0m"
+			if [ "$2" = "-f" ] || [ "$3" = "-f" ];then
+				git -C "$gitbare_manifests" checkout .>/dev/null 2>&1
+				git -C "$gitbare_manifests" checkout -f #>/dev/null
+			fi
+			
+			if [ $(git -C "$gitbare_manifests" branch -r|grep "/`git  -C "$gitbare_manifests" branch -a|grep '*'|cut -d " " -f 2`$"|wc -l) -eq 0 ];then #非分支名
+				git -C "$gitbare_manifests" pull>/dev/null 2>&1 #>/dev/null
+			else
+				git -C "$gitbare_manifests" pull>/dev/null
+			fi
+			#git -C "$gitbare_manifests" pull>/dev/null
+			echo ----------------------------------------------------
+		fi
+		rm -f $gitconf #使用 manifest.xml
+	fi
+	if [ "$1" = "-f" ] || [ "$2" = "-f" ] || [ "$3" = "-f" ];then
+		f_force_sync=1
+	fi
+elif [[ "$1" = *".xml" ]];then
+	xml=$1 #mmc.xml
+	if [ -f "$1" ];then
+		ln -s -f ../$xml .gitbare/manifest.xml&>/dev/null
+		if [ $? -eq 1 ];then
+			echo \
+'''<?xml version="1.0" encoding="UTF-8"?>
+<manifest>
+	<include name="'''../$xml'''"/>
+</manifest>'''>.gitbare/manifest.xml
+		fi
+		rm -f $gitconf
+	elif [ -f "$Root/.gitbare/manifests/$xml" ];then
+		ln -s -f manifests/$xml .gitbare/manifest.xml&>/dev/null
+		if [ $? -eq 1 ];then
+			echo \
+'''<?xml version="1.0" encoding="UTF-8"?>
+<manifest>
+	<include name="'''manifests/$xml'''"/>
+</manifest>'''>.gitbare/manifest.xml
+		fi
+		rm -f $gitconf
+		xml=.gitbare/manifests/$1
+	else
+		echo "error: $1 is not exist."
+		exit
+	fi
+	echo -e "\033[1m\033[32mUse XML: $xml\033[0m"
+	xml0=`ls -l "$Root/.gitbare/manifest.xml" 2>/dev/null|cut -d ">" -f 2`
+	echo -e "\033[1m\033[31mmanifest.xml --> $xml0\033[0m"
+	sleep 1
+elif [ "$1" = "-l" ] || [ "$1" = "-n" ];then #gitx -l:仅git checkout #gitx -n:仅git pull
+	:
+	if [ ! -f $gitconf ];then
+		xml0=`ls -l "$Root/.gitbare/manifest.xml" 2>/dev/null|cut -d ">" -f 2` # ../*/*.xml # manifests/default.xml
+		xml=.gitbare/${xml0:1} #.gitbare/manifests/default.xml
+	fi
+else
+	f_cmd=1
+fi
+#HELP(){
+: #HELP函数原位置。
+#}
+#HELP
+
+if [ $f_help = 1 ] || [ "$1" = "-h" ] || [ "$1" = "--help" ] || [ "$1" = "help" ] || [ "$1" = "-help" ] || [ "$1" = "/?" ];then #help
+	clear #因为clear所以HELP最好加 sleep 0.3，避免反应慢重复显示帮助。
+	HELP 2>/dev/null #完整版HELP
+#	if [ $? -eq 127 ];then #当不存在完整版HELP时采用精简版HELP_  #此方式不同系统下可能不够完善
+#		HELP_ #精简版HELP_是为了隐藏gitx部分特定功能
+#	fi
+	exit
+fi
+
+if [ "$f_init" -ge "1" ];then #1 -m , 2 init
+	xml=$xml_manifest #恢复xml值，因为上述会被初始化。#.gitbare/manifests/$xml
+fi
+
+#cat_xml=`cat $xml`
+#default_revision=master
+
+if [ -d "$gitbare_manifests" ];then #2023.12.21
+	xml_path=$gitbare_manifests #include 路径为相对于 .gitbare/manifests 路径，同匹配manifest.xml写法一致。
+else
+	xml_path=${xml%/*} #2023.12.21 #截取最后一个/前面所有字符串 #.gitbare/manifests
+fi
+if [ "$xml_path" = "$xml" ];then xml_path=".";fi
+
+#origin=`git -C $xml_path remote`
+#xml_url=`git -C $xml_path ls-remote --get-url $origin`
+#srv=${xml_url%%/*}
+#remote=$srv/
+#echo $origin
+#echo $srv
+
+##一行行读取
+#while read -r line;do
+#	line1=`echo "$line"|grep -w "<default"|head -1`	
+#	if [ "$line1" != "" ];then 
+#		default_revision=`echo "$line1"|awk -F 'revision="' '{print $2}'|awk -F '"' '{print $1}'` #master 分支名
+#		if [ "$default_revision" != "" ];then 
+#			break;
+#		fi
+#	fi
+#done<$xml
+#if [ "$default_revision" = "" ];then
+#	default_revision=master
+#fi
+#echo Default Branch:\"$default_revision\"
+
+#echo -e "\033]0;$SH $* [$(pwd)]\007" #标题Title
+default_revision="" #<default remote="origin" revision="master" sync-j="2"/>
+default_remote=""
+f_zhushi=0
+
+#line='<remote fetch="ssh://git@git.cnxdc.top" name="cnxdc" review="git.cnxdc.top"/>'
+#line='<remote fetch=".." name="cnxdc" review="git.cnxdc.top"/>'
+#remote_name="cnxdc"
+#用法：REMOTE $XML $remote_name
+REMOTE(){
+	remote_name=$2
+	if [ "$remote_name" = "" ];then
+		remote_name=origin
+	fi
+	while read -r line;do
+		line1=`echo "$line"|grep -w "<remote"|grep -w "name=\"$remote_name\""|head -1`	
+		if [ "$line1" != "" ];then
+			remote_=`echo "$line1"|awk -F 'fetch="' '{print $2}'|awk -F '"' '{print $1}'` #remote服务器
+			if [[ "$remote_" = *"://"* ]];then 
+				break;
+			fi
+		fi
+	done<"$1"
+	if [[ "$remote_" != *"://"* ]] || [ "$remote_" = ".." ];then 
+		remote_=$remote #默认设定值
+	fi	
+	#echo -e "\033[31mRemote[$remote_name]:\"$remote_\"\033[0m"
+} #REMOTE
+
+DefaultRemote(){
+	while read -r line;do
+		line1=`echo "$line"|grep -w "<default"|head -1`	
+		if [ "$line1" != "" ];then 
+			default_remote_name=`echo "$line1"|awk -F 'remote="' '{print $2}'|awk -F '"' '{print $1}'` #默认remote服务器
+			if [ "$default_remote_name" != "" ];then 
+				break;
+			fi
+		fi
+	done<"$1"
+	if [ "$default_remote_name" = "" ];then
+		default_remote_name=origin #默认设定值
+	fi	
+	REMOTE "$1" "$default_remote_name"
+	default_remote="$remote_"
+	echo -e "\033[34mDefault Remote : $default_remote\033[0m"
+	echo -e "\033[33mDefault Remote Name : $default_remote_name\033[0m"
+	echo "#Default Remote:$default_remote">$gitconf #重置 .gitbare/.gitbare.conf #2023/04/24 #rm -f $gitconf
+	#echo "#Default Remote:$default_remote">.gitbare/.remote
+}
+
+file_path=$gitconf
+ExtendProject(){ #2024.09.18
+#manifest.xml格式
+#<project name="manifest" path="build/manifest" revision="master"/>
+#extend格式参考1
+#<extend-project name="manifest" revision="master-test"/>
+#extend格式参考2
+#<extend-project name="manifest" path="build/manifest" revision="develop-test"/>
+
+# 文件路径  
+#file_path=".gitbare/.gitbare.conf"  
+#path="src/cr5fw"
+#name="eho25sa-cr5fw"
+KeyWord="$path\t$name\t"
+#echo $KeyWord -- $revision;sleep 2
+
+# /
+# 使用 awk 来处理文件，忽略以特定前缀开头的行，并替换符合条件的行的第三段
+#awk -v kw="$KeyWord" 'BEGIN { FS="\t"; OFS="\t" };BEGIN { gsub(/\//, "\\/", kw); } $0 ~ kw { if (NF >= 3) $3 = "master"; } { print }' $file_path # BEGIN { gsub(/\//, "\\/", kw); } 不需要转义
+
+#awk ' #使用此行要以下行对调，因为即使 #注释也不行，一定要和 awk -v KeyWord="$KeyWord" ' 对调，主要原因单引号影响。
+awk -v KeyWord="$KeyWord" -v revision=$revision \
+'
+BEGIN { FS="\t"; OFS="\t" }  # 设置输入和输出字段分隔符为制表符  
+# 忽略以 "ln -s -f "、"cp -f " 或 "#" 开头的行  
+/^ln -s -f / || /^cp -f / || /^#/ { print; next }  
+# 对于其他行，如果包含 "eho25sa-cr5fw"，则替换第三个字段为 "master"  
+{  
+    # 现在要求 "eho25sa-cr5fw" 前后至少有一个制表符 \t（或任意空白字符 [[:blank:]] ）  
+    #if ($0 ~ /'$KeyWord'/) {
+    if ($0 ~ KeyWord) {
+        if (NF >= 3) $3 = revision;  # $3 = "master"; 
+        #print $0;  
+    } print;
+
+##方法一##
+#    # 现在要求 "eho25sa-cr5fw" 前后至少有一个制表符 \t（或任意空白字符 [[:blank:]] ）  
+#    if ($0 ~ /\t+eho25sa-cr5fw+\t/) {  #或 \teho25sa-cr5fw\t
+#        if (NF >= 3) $3 = "master";  
+#        #print $0;  
+#    }
+#    print; 
+##方法二##
+#    for (i=1; i<=NF; i++) {  
+#        if ($i ~ /^eho25sa-cr5fw$/) {  
+#            if (NF >= 3) $3 = "master";  # 替换第三个字段  
+#            break;  
+#        }  
+#    }  
+#    print;  
+
+}  
+' "$file_path">"$file_path.bak"
+cp -f "$file_path.bak" "$file_path"
+rm -f "$file_path.bak"
+# 注意：上面的脚本只是打印出修改后的结果到标准输出。  
+# 如果你想要将结果写回原文件或其他文件，你可以使用重定向，例如：  
+#awk ... "$file_path" > temp_file && mv temp_file "$file_path"
+}
+
+#path="src/cr5fw"
+#name="eho25sa-cr5fw"
+#ExtendProject
+#exit
+GITXML(){
+if [ "$default_remote" = "" ];then
+	while read -r line;do
+		line1=`echo "$line"|grep -w "<default"|head -1`	
+		if [ "$line1" != "" ];then 
+			default_remote_name=`echo "$line1"|awk -F 'remote="' '{print $2}'|awk -F '"' '{print $1}'` #默认remote服务器
+			if [ "$default_remote_name" != "" ];then 
+				break;
+			fi
+		fi
+	done<"$1"
+	if [ "$default_remote_name" = "" ];then
+		default_remote_name=origin #默认设定值
+	fi	
+	echo -e "\033[33mDefault Remote Name : $default_remote_name\033[0m"
+	REMOTE "$1" "$default_remote_name"
+	default_remote="$remote_"
+	echo -e "\033[34mDefault Remote : $default_remote \033[0m"	
+fi
+
+if [ "$default_revision" = "" ];then
+	while read -r line;do
+		line1=`echo "$line"|grep -w "<default"|head -1`	
+		if [ "$line1" != "" ];then 
+			default_revision=`echo "$line1"|awk -F 'revision="' '{print $2}'|awk -F '"' '{print $1}'` #master 分支名
+			if [ "$default_revision" != "" ];then 
+				break;
+			fi
+		fi
+	done<"$1"
+	#if [ "$default_revision" = "" ];then
+		#default_revision=master
+	#fi
+	if [ "$default_revision" != "" ];then
+		echo -e "\033[31mDefault Branch : $default_revision\033[0m" #Default Revision
+	fi
+fi
+
+
+while read -r line;do
+	name="";path="";revision="";include="";remove=""
+	cnt__=`echo $line|grep '^<!--'|wc -l`
+	if [ $cnt__ = 1 ] || [ "$f_zhushi" = "1" ];then
+		f_zhushi=1
+		cnt__1=`echo $line|grep '\-->'|wc -l` #\转义-->
+		if [ $cnt__1 = 1 ];then
+			f_zhushi=0			
+		fi
+		continue
+	fi
+	include=`echo "$line"|awk -F '<include name="' '{print $2}'|awk -F '"' '{print $1}'`
+	if [ "$include" != "" ];then
+		if [ -f $xml_path/$include ];then
+			GITXML $xml_path/$include
+		else
+			echo -e "\033[34mError : Include No Exist : $xml_path/$include\033[0m"
+			sleep 1
+		fi
+		continue
+	fi
+
+	remove=`echo "$line"|awk -F '<remove-project name="' '{print $2}'|awk -F '"' '{print $1}'`
+	if [ "$remove" != "" ];then
+		if [ ! -f $gitconf ];then touch $gitconf;fi
+		#echo sed -i '/\t'$remove'\t/d' $gitconf		
+		sed -i '/\t'$remove'\t/d' $gitconf #删除匹配行
+		continue
+	fi
+	#line1=`echo "$line"|grep -w "<project name="|head -1` #2024/05/13
+	line1=`echo "$line"|grep -w "<project"|head -1` #2024/05/13
+	lineEx=`echo "$line"|grep -w "<extend-project"|head -1` #2024/09/14
+	if [ "$lineEx" != "" ];then
+		name=`echo "$lineEx"|awk -F ' name="' '{print $2}'|awk -F '"' '{print $1}'` #master 分支名
+		path=`echo "$lineEx"|awk -F ' path="' '{print $2}'|awk -F '"' '{print $1}'`
+		revision=`echo "$lineEx"|awk -F ' revision="' '{print $2}'|awk -F '"' '{print $1}'`
+		#echo -e "$path\t$name\t$revision"
+		ExtendProject
+	#fi
+	#if [ "$line1" != "" ];then
+	elif [ "$line1" != "" ];then #2024.09.18
+		name=`echo "$line1"|awk -F ' name="' '{print $2}'|awk -F '"' '{print $1}'` #master 分支名		
+		if [ "$name" != "" ];then
+			path=`echo "$line1"|awk -F ' path="' '{print $2}'|awk -F '"' '{print $1}'`
+			if [ "$path" = "" ];then
+				path=$name
+			fi
+			revision=`echo "$line1"|awk -F ' revision="' '{print $2}'|awk -F '"' '{print $1}'`
+			if [ "$revision" = "" ];then
+				revision=$default_revision
+				if [ "$default_revision" = "" ];then
+					echo
+					echo ------------------------------------------------
+					if [ "$f_sleep" != "1" ];then
+						echo -e "\033[33mfatal: No default revision in manifest.xml\033[0m"
+						echo -e "\033[36mThe default revision will be set 'master'\033[0m"
+						echo -e '\033[31m<default remote="'$default_remote_name'" revision="master"/>\033[0m'
+						echo ------------------------------------------------
+						sleep 3
+						f_sleep="1"
+					fi
+					echo "Repo Name: $name"	
+					echo -e "\033[32mfatal: No revision. It will be set 'master'\033[0m"
+					echo "Local Path: $path"					
+					revision="master"
+				fi
+			fi
+			#<remote fetch="ssh://git@git.cnxdc.top/vw-regio2" name="origin" review="git.cnxdc.top"/>
+			#<project name="packages/kernel-regio2" remote="origin"/>
+
+			if [ "${name: -1}" = "/" ];then name=${name::-1};fi
+			if [ "${path: -1}" = "/" ];then path=${path::-1};fi
+			#echo $name $path $revision
+			remote_name=`echo "$line1"|awk -F ' remote="' '{print $2}'|awk -F '"' '{print $1}'`
+			if [ "$remote_name" != "" ];then
+				REMOTE "$1" "$remote_name"
+				remote_fetch="$remote_"
+			else
+				remote_fetch=""
+			fi
+			if [ "$remote_fetch" = "" ];then
+				remote_fetch=$default_remote
+				echo -e "$path\t$name\t$revision">>$gitconf
+			else
+				echo -e "$path\t$name\t$revision\t$remote_fetch">>$gitconf
+			fi
+			#echo -e "$path\t$name\t$revision">>$gitconf
+			path_="$path/"
+		fi
+	else
+		line2=`echo "$line"|grep "<copyfile "|head -1`
+		if [ "$line2" != "" ] && [ "$path_" != "" ];then
+			dest=`echo "$line2"|awk -F ' dest="' '{print $2}'|awk -F '"' '{print $1}'`
+			src=`echo "$line2"|awk -F ' src="' '{print $2}'|awk -F '"' '{print $1}'`
+			if [ "$dest" != "" ] && [ "$src" != "" ];then
+				#echo cp -f $path_$src $dest
+				echo -e "cp -f $path_$src $dest">>$gitconf
+			fi
+		else
+			line3=`echo "$line"|grep "<linkfile "|head -1`
+			if [ "$line3" != "" ] && [ "$path_" != "" ];then
+				dest=`echo "$line3"|awk -F ' dest="' '{print $2}'|awk -F '"' '{print $1}'`
+				src=`echo "$line3"|awk -F ' src="' '{print $2}'|awk -F '"' '{print $1}'`
+				if [ "$dest" != "" ] && [ "$src" != "" ];then
+					#echo ln -s $path_$src $dest
+					ln -s -f $path_$src $dest
+					echo -e "ln -s -f $path_$src $dest">>$gitconf
+				fi
+			fi		
+		fi
+	fi
+done<"$1"
+} #GITXML
+
+#echo "模板
+#<project name="pulsar/pulsar_base" path="products/pulsar_base" revision="master" >
+#<copyfile dest="build.sh" src="scripts/root-build.sh"/>
+#<linkfile dest="sync.sh" src="scripts/root-sync.sh"/>
+#</project>
+#
+#products/pulsar_base	pulsar/pulsar_base	master
+#cp -f pulsar/pulsar_base/scripts/root-build.sh build.sh
+#ln -s -f pulsar/pulsar_base/scripts/root-sync.sh sync.sh
+#"
+
+#f_tag=0
+if [ "$f_init" -ge "1" ];then
+	echo GITXML $xml
+	GITXML $xml #.gitbare/manifests/*.xml
+	#if [ "$f_init" = "2" ];then #1 -m , 2 init
+	#	if [ `git -C "$gitbare_manifests" branch -r|grep -w "$(git -C "$gitbare_manifests" remote)/$xml_branch$"|wc -l` -eq 1 ];then #branch判断 1为branch找到，0为未找到，可以再搜索tag。 #BRANCH 或 refs/heads/BRANCH #标签：refs/tags/TAG	
+	#		f_tag=0 #f_branch=1
+	#	elif [ `git -C "$gitbare_manifests" tag|grep -w "^$xml_branch$"|wc -l` -eq 1 ];then
+	#		f_tag=1
+	#		#f_cmd=0 #0才能继续同步，init 时默认为1，后f_tag=1条件处理。
+	#		echo "------------------------"
+	#		echo "Sync will continue ..."
+	#		sleep 2
+	#	fi
+	#fi
+	#if [ $f_tag -eq 0 ];then
+	#	exit
+	#fi
+	if [ "$f_init" = "2" ];then  #init 默认继续同步
+			if [ "$f_init_only" = "1" ];then #特定情况变量设定，仅初始化，不自动同步。
+			#	f_init_only=0  #清0
+				exit
+			fi
+			echo "------------------------"
+			echo "Sync will continue ..."
+			sleep 4
+	else
+		exit
+	fi
+fi
+
+if [ $f_xml = 0 ] && [ $f_cmd = 0 ];then
+	echo -e "\033[32mmanifest.xml => .gitbare.conf\033[0m"
+	#rm -f $gitconf #先删除 #当前也可注释
+	if [ "$xml" != "$gitconf" ] && [ "$xml" != ".gitbare/" ];then
+		DefaultRemote $xml #设置默认远端服务
+		GITXML $xml #manifest.xml 转为 .gitbare.conf		
+	fi
+	echo "--> $gitconf"
+	if [ "$1" = "" ] || [ "$1" = "-n" ];then echo "Only Run : git pull";fi
+	echo
+	echo ====================================================
+elif [ $f_xml = 1 ] && [ $f_cmd = 0 ];then	
+	echo -e "\033[31m--== Use .gitbare.conf ==--\033[0m"
+	if [ "$1" = "" ] || [ "$1" = "-n" ];then echo "Only Run : git pull";fi
+	echo
+	echo ====================================================
+fi
+echo -e "\033]0;$SH $* [$(pwd)]\007" #标题Title
+
+#export f_forall=1 #每行都执行cmd，可外部定义。#f_forall=0 #不在此设定
+#gitx -c "cmd" 或 gitx forall -c "cmd"
+FORALL(){ #仿照 repo forall -c "cmd"
+	if [ ! -f "$gitconf" ];then return;fi
+	par=$*	
+	cmd=${par#*-c } #截取第一个 -c 后面所有字符串
+	#echo $par
+	if [ "$f_forall" = 1 ];then
+		echo "export f_forall=$f_forall" #外部设定默认应为：export f_forall=""
+	fi
+	echo ------------------------
+	echo -e "\033[1m\033[36m"
+	echo "$cmd"
+	echo -e "\033[0m" #黄色高亮
+	echo ------------------------
+	sleep 2
+	cd "$Root"
+	while read -r line;do
+	if [ "${line// /}" != "" ];then #替换去空格 #if [ "$line" != "" ];then
+		path=`echo "$line"|awk -F '\t' '{print $1}'`
+		name=`echo "$line"|awk -F '\t' '{print $2}'`
+		revision=`echo "$line"|awk -F '\t' '{print $3}'`
+		remote_url=`echo "$line"|awk -F '\t' '{print $4}'`
+		
+		pushd .>/dev/null #popd>/dev/null
+		if [ "$f_forall" = "1" ];then #全部执行cmd指令
+			#if [ "${line::1}" = "#" ];then
+			#continue
+			#fi
+			if [ -d "$path" ];then
+				cd "$path"
+				echo -e "\033[1m\033[31m$path:\033[0m" #红色高亮
+				eval "$cmd"
+			else
+				echo --------------------------------------------------------------------
+				echo -e "\033[1m\033[45m$line\033[0m"
+				eval "$cmd"
+				echo --------------------------------------------------------------------
+			fi
+			
+		else #一般处理如下 #、cp -f 、ln -s 等行不执行传递的cmd指令，默认只显示行信息。
+			if [ "${line:0:6}" = "cp -f " ] || [ "${line:0:6}" = "ln -s " ] || [ "${line:0:1}" = "#" ] || [ ! -d "$path" ];then				
+				echo --------------------------------------------------------------------
+				echo -e "\033[1m\033[33;45m$line\033[0m"
+				echo --------------------------------------------------------------------
+				continue
+			else
+				cd "$path"				
+			fi
+			echo -e "\033[1m\033[31m$path:\033[0m" #红色高亮
+			eval "$cmd"
+		fi
+		popd>/dev/null		
+
+	fi
+	done<$gitconf	
+}
+
+#位于分支 develop
+#您的分支落后 'origin/develop' 共 3 个提交，并且可以快进。
+#  （使用 "git pull" 来更新您的本地分支）
+#git status|grep -w '"git pull"'|wc -l # =1 即判断包含 "git pull"就执行git pull # 学习
+
+if [ "$1" = "checkout" ] || [ "$1" = "co" ];then
+	if [ "$2" = "" ];then
+		FORALL -c git checkout .
+	elif [ "$1" = "checkout" ];then
+		par=$*	
+		branchname=${par#*checkout } #截取第一个 -c 后面所有字符串
+		FORALL -c git checkout $branchname
+	else
+		par=$*	
+		branchname=${par#*co } #截取第一个 -c 后面所有字符串
+		FORALL -c git checkout $branchname
+	fi
+	exit
+elif [ "$1" = "manifest" ] || [ "$1" = "xml" ];then
+	if [ "$2" = "" ];then
+		if [ "$1" = "manifest" ];then
+			release_xml="$Root/release_manifest.xml"
+		else
+			release_xml="$Root/release_gitbare.conf"
+		fi
+	else
+		release_xml="$Root/$2"
+	fi
+	rm -f $release_xml
+	#cd $Root
+	f_forall=1 #特定处理
+	#FORALL -c 'echo -e "$path\t$name\t$(git log -1 --pretty=format:%H 2>/dev/null)\t$remote_url">>$release_xml' #'"$release_xml"
+	#FORALL -c 'echo -e "$path\t$name\t$(git log -1 --pretty=format:%H 2>/dev/null||echo $revision)\t$remote_url">>$release_xml' #'"$release_xml"
+	#FORALL -c 'echo -e "$path\t$name\t$(git log -1 --pretty=format:%H 2>/dev/null||echo $revision)$(if [ "$remote_url" = "" ];then echo "";else echo "\t$remote_url";fi)">>$release_xml' #'"$release_xml" #学习 $(条件语句) #高级用法
+	FORALL -c 'echo -e `if [ "${path::1}" = "#" ];then echo $line;else echo "$path\t$name\t$(git log -1 --pretty=format:%H 2>/dev/null||echo $revision)$(if [ "$remote_url" = "" ];then echo "";else echo "\t$remote_url";fi)";fi`>>$release_xml' #'"$release_xml" #学习 $(条件语句) #高级用法
+	#FORALL -c 'echo -e `if [ "${path::1}" = "#" ];then echo $line;else echo +++;fi`>>$release_xml' #'"$release_xml" #学习 $(条件语句) #高级用法
+
+	echo
+	#echo -e "release_manifest:\n$release_xml"
+	echo -e "\033[35mrelease_manifest:\n\033[1m\033[33m$release_xml\033[0m"
+elif [ "$1" = "-c" ] || ([ "$1" = "forall" ] && [ "$2" = "-c" ]);then
+	FORALL $*
+	exit 
+elif [ "$*" = "conf" ] || [ "$*" = "config" ] || [ "$*" = "gitbare" ] || [ "$*" = "gitconf" ];then
+	cd "$Root"
+	echo -e "\033[32m------=== $Root/$gitconf ===------\033[0m"
+	echo
+	cat "$gitconf"
+	exit
+fi
+
+#if [ "$f_cmd" = "1" ] && [ "$f_tag" = "0" ];then exit;fi
+if [ "$f_cmd" = "1" ] && [ "$f_init" != "2" ];then exit;fi
+
+#======= 以下同步处理 =======
+
+cnt_line=0
+cnt_lines=0
+cnt_lines=`wc -l<$gitconf` #总行数
+cnt_lines_cp=0
+cnt_lines_ln=0
+cnt_lines_cp=`cat "$gitconf"|grep -w "cp -f" |wc -l`
+cnt_lines_ln=`cat "$gitconf"|grep -w "ln -s" |wc -l`
+cnt_lines_not=`cat "$gitconf"|grep "^#"|wc -l`
+cnt_lines_null=`cat "$gitconf"|grep "^$"|wc -l`
+#cnt_lines_sp=`cat "$gitconf"|grep "^ "|wc -l` #空格开头行
+cnt_lines_space=`cat "$gitconf"|grep '^ \s*$'|wc -l` #空格行总行数 --学习--
+#cat Text.txt|grep '^\s*$'|wc -l #空格行包括空行的总行数，注意最后一行为空行不算。
+
+cnt_lines=$(($cnt_lines - $cnt_lines_cp - $cnt_lines_ln - $cnt_lines_not - $cnt_lines_null - $cnt_lines_space))
+
+cnt_error=0
+cnt_modify=0
+clone_error=0
+checkout_error=""
+checkout_modify=""
+re_cloned=""
+f_init_clone=0
+#echo -e "\033[1m\033[35;47mTotal number of repositories :\033[31m $cnt_lines \033[0m\n"
+echo -e "\033[1m\033[44mTotal number of repositories : $cnt_lines \033[0m\n" #蓝色底白字
+if [ "$cnt_lines" = "0" ];then
+	echo -e "\033[1m\033[32mThe \"$gitconf\" file maybe error. Please specify manifest.xml again.\n\033[0m"
+	sleep 4
+fi
+
+init_clone(){
+	clone_error=0
+	rm -rf .gitbare/$path.git
+	echo -e "\033[1m\033[31m$path:\033[0m" $cnt_line/$cnt_lines #1m加粗 红色高亮
+	#echo -e "$path\t$name\t$revision">>$gitconf
+	#echo git clone -b $revision $remote/$name $path
+	#git clone -b $revision $remote/$name $path				
+   #echo git clone --bare -b $revision $remote/$name .gitbare/$path.git
+   #git clone --bare -b $revision $remote/$name .gitbare/$path.git
+    echo git clone --bare $remote/$name .gitbare/$path.git
+    git clone --bare $remote/$name .gitbare/$path.git
+	clone_error=$?
+	if [ $clone_error -gt 0 ];then #没权限、找不到等=128
+		cnt_error=$((cnt_error + 1))
+		if [ "$checkout_error" = "" ];then
+			#checkout_error="$cnt_line_$path : $revision  \t[ git clone failed. ]"
+			#co_error="$cnt_line_$path : $revision"
+			co_error="$cnt_line_$path"
+			checkout_error="`printf "%-50s" "$co_error"` [$revision]\t[ git clone failed. ]" #长度50右补空格 + " [ git clone failed. ]" #右对齐
+		else
+			#checkout_error="$checkout_error\n$cnt_line_$path : $revision  \t[ git clone failed. ]"
+			#co_error="$cnt_line_$path : $revision"
+			co_error="$cnt_line_$path"
+			checkout_error="$checkout_error\n`printf "%-50s" "$co_error"` [$revision]\t[ git clone failed. ]" #长度50右补空格 + " [ git clone failed. ]" #右对齐
+		fi						
+		echo -e "\033[32m--== Git Clone Error ==--\n\033[33m$path : [$revision]\n\033[35mThe requested repository either does not exist or you do not have access.\033[0m"
+		#echo ------------------
+		sleep 2
+		return
+	fi
+	mkdir -p $path					
+	if [ "$path" = "" ];then
+		cnt_=0
+	else
+		cnt_=`echo "$path/.git" | awk -F"/" '{print NF-1}'`
+	fi
+	relative_path=""
+	for((i=1;i<=cnt_;i++));do relative_path=$relative_path../;done
+	mkdir -p $path
+	if [ -e $path/.git ];then
+		rm -rf $path/.git>/dev/null 2>&1
+	fi	
+#	if [ "$f_cp" = "1" ];then
+#		echo rsync -avh --delete $Root_.gitbare/$path.git/ $path/.git
+#		rsync -avh --delete $Root_.gitbare/$path.git/ $path/.git #镜像拷贝镜像同步 #Windows磁盘分区格式
+#	else
+#		echo ln -s -f $relative_path.gitbare/$path.git $path/.git
+#		ln -s -f $relative_path.gitbare/$path.git $path/.git
+#	fi
+	echo $cmd_gitdata
+	eval $cmd_gitdata
+	#git -C $path remote
+	origin=`git -C $path remote`
+	git -C $path config --unset core.bare #或 git -C $path init
+	git -C $path config branch.$revision.remote $origin
+	git -C $path config branch.$revision.merge refs/heads/$revision
+	git -C $path config remote.$origin.fetch +refs/heads/*:refs/remotes/$origin/*
+	rm -f .gitbare/$path.git/packed-refs
+
+	git -C $path reset
+	echo git -C $path pull
+	git -C $path pull 2>/dev/null # git fetch
+	echo git -C $path checkout $revision
+	git -C $path checkout $revision -f #强制性
+	if [ $? -ge 1 ] || [ "$f_init_clone" = 1 ];then #2023/04/26
+		cnt_error=$((cnt_error + 1))
+		if [ "$checkout_error" = "" ];then
+			#checkout_error="$cnt_line_$path : $revision$re_cloned"
+			co_error="$cnt_line_$path"
+			checkout_error="`printf "%-50s" "$co_error"` [$revision]$re_cloned" #长度50右补空格 + " [ git clone failed. ]" #右对齐
+		else
+			#checkout_error="$checkout_error\n$cnt_line_$path : $revision$re_cloned"
+			co_error="$cnt_line_$path"
+			checkout_error="$checkout_error\n`printf "%-50s" "$co_error"` [$revision]$re_cloned"
+		fi
+		if [ "$f_init_clone" != 1 ];then #2023/04/26
+			echo -e "\033[32m--== Checkout Error ==--\n\033[33m$path : [$revision]\n\033[35mPlease Run :\n\033[31mgit checkout $revision -f\033[0m"
+			#echo ------------------
+			sleep 2
+		fi
+	fi
+	f_init_clone=0
+	re_cloned=""
+}
+
+remote0="$remote" #备份变量remote值
+SYNC(){ #同步
+#gitx sync REPO_PATH [-f] # REPO_PATH 会智能转换，xml的path路径，相对路径，绝对路径都支持
+f_REPO_PATH=0
+REPO_PATH="$2"
+if [[ "$REPO_PATH" = "."* ]];then # || [ "$2" = "./" ]
+	REPO_PATH=${REPO_PATH:2}
+fi
+if [ "${REPO_PATH: -1}" = "/" ];then #判断最后1个字符
+	REPO_PATH=${REPO_PATH:: -1} #去掉最后1个字符：/
+fi
+
+if [ "${REPO_PATH::1}" = "/" ];then #绝对路径 ~也默认会转换为绝对路径$HOME #判断最后1个字符
+	#REPO_PATH=${REPO_PATH/$Root\//} #去掉最后1个字符：/ #${变量/查找/替换值} 只替换第一个
+	REPO_PATH=${REPO_PATH:((${#Root}+1))} #用$Root/长度截取方式
+fi
+
+if [ "$REPO_PATH" != "" ];then
+	AbsPATH=$PWD0/$REPO_PATH
+else
+	AbsPATH=$PWD0
+fi
+#echo $AbsPATH
+#echo $REPO_PATH
+if [ "$1" = "sync" ] && ([[ "$2" = *"/"* ]] || ([ "$2" != "" ] && [ "$2" != "-f" ] && [[ "$2" != *'.xml' ]] && [ "$2" != "-l" ] && [ "$2" != "-n" ]));then
+	f_REPO_PATH=1
+fi	
+while read -r line;do
+	f_modify=0
+	f_path_create=0
+	path="";name="";revision=""
+	f_SHA1=0;f_fetch=0
+	f_init_clone=0
+	re_cloned=""
+	stash=""
+	#cnt_line=$((cnt_line+1)) #计数
+	if [ "$line" != "" ] && [ "${line::1}" != "#" ];then # #$line前面空格默认被弃除，首个字符为空格不能直接判
+		if [ "${line:0:6}" = "cp -f " ] || [ "${line:0:6}" = "ln -s " ];then 
+			eval "$line"
+			continue
+		fi
+		remote="$remote0"
+		cnt_line=$((cnt_line+1)) #计数
+		cnt_line_="`printf "%-3s" "$cnt_line"`: " #`printf "%-3s" "$cnt_line" 默认长度为3右补空格 #`printf "%3s" "$cnt_line" 默认长度为3左补空格 -- 学习 --
+		path=`echo "$line"|awk -F '\t' '{print $1}'`
+		name=`echo "$line"|awk -F '\t' '{print $2}'`
+		revision=`echo "$line"|awk -F '\t' '{print $3}'`
+		remote_url=`echo "$line"|awk -F '\t' '{print $4}'`
+		if [ "$remote_url" != "" ];then
+			remote="$remote_url"
+		fi
+		#echo $path $name $revision
+
+		if [[ "$revision" =~ ^[0-9a-f]+$ ]] && [ ${#revision} -eq 40 ];then #&& [ ${#revision} -ge 4 ]
+			f_SHA1=1 #SHA1 #判断为SHA1值
+		fi
+		
+		#gitx sync REPO_PATH [-f]
+		if [ $f_REPO_PATH -eq 1 ] && [ "$AbsPATH" != "$Root/$path" ] && [ "$REPO_PATH" != "$path" ] ;then
+			continue
+		fi
+		url=`git -C .gitbare/$path.git ls-remote --get-url $(git -C .gitbare/$path.git remote 2>/dev/null) 2>/dev/null`
+		if [ -d ".gitbare/$path.git" ] && [ "$url" = "$remote/$name" ];then
+			echo -e "\033[1m\033[31m$path:\033[0m" $cnt_line/$cnt_lines #红色高亮
+			if [ ! -d "$path" ];then
+				f_path_create=1
+			fi
+			if [ ! -d "$path/.git" ];then #计算软链接..使用数量
+				#mkdir -p $path
+				if [ "$path" = "" ];then
+					cnt_=0
+				else
+					cnt_=`echo "$path/.git" | awk -F"/" '{print NF-1}'`
+				fi
+				relative_path=""
+				for((i=1;i<=cnt_;i++));do relative_path=$relative_path../;done
+				if [ $f_path_create -eq 1 ];then mkdir -p $path;fi				
+			#	if [ "$f_cp" = "1" ];then
+			#		echo rsync -avh --delete $Root_.gitbare/$path.git/ $path/.git
+			#		rsync -avh --delete $Root_.gitbare/$path.git/ $path/.git #镜像拷贝镜像同步 #Windows磁盘分区格式
+			#	else
+			#		echo ln -s -f $relative_path.gitbare/$path.git $path/.git
+			#		ln -s -f $relative_path.gitbare/$path.git $path/.git
+			#	fi
+				echo $cmd_gitdata
+				eval $cmd_gitdata
+				
+				if [ $f_SHA1 -eq 1 ];then #2023/04/23
+					git -C "$path" cat-file -t$revision >/dev/null 2>&1
+					if [ $? -eq 128 ];then #128为找不到SHA1，需要git fetch一下
+						f_fetch=1
+						git -C "$path" fetch>/dev/null 2>&1
+					fi		
+				fi
+				
+				git -C "$path" checkout $revision -f>/dev/null 2>&1
+			else #-d .git
+				if [ "`ls -A $path`" = ".git" ];then #只有 .git 目录判断
+					#if [ "`git -C "$path" diff 2>/dev/null`" != "" ];then #当前有变更，当作新的重新checkout
+					if [ "`git -C "$path" status -s --untracked-files=no 2>/dev/null`" != "" ];then #有变更 #跟踪文件修改时不为空。
+						if [ $f_SHA1 -eq 1 ];then #2023/04/23
+							git -C "$path" cat-file -t$revision >/dev/null 2>&1
+							if [ $? -eq 128 ];then #128为找不到SHA1，需要git fetch一下
+								f_fetch=1
+								git -C "$path" fetch>/dev/null 2>&1
+							fi		
+						fi
+						git -C "$path" checkout $revision -f>/dev/null 2>&1
+					fi
+				fi
+			fi
+			#echo -e "\033[1m\033[31m$path:\033[0m" $cnt_line/$cnt_lines #红色高亮
+			#echo -e "$path\t$name\t$revision">>$gitconf
+			if [ ! -f "$path/.git/config" ] || [ "`git -C $path branch -r`" = "" ];then
+				init_clone
+			else #以为一般同步情况处理
+				#git_diff=`git -C "$path" diff 2>/dev/null`
+				#git_diff #128目录不存在，Error:129 #Not a git repository
+				
+				#if [ "`git -C "$path" diff 2>/dev/null`" != "" ] && [ $f_path_create -eq 0 ];then #有被修改，提示。#f_path_create=1 为被完全删除，当作全新下载，不作为被修改。
+				if [ "`git -C "$path" status -s --untracked-files=no 2>/dev/null`" != "" ] && [ $f_path_create -eq 0 ];then #有变更 #跟踪文件修改时不为空。
+					f_modify=1
+					#if [ "$checkout_modify" = "" ];then
+					#	checkout_modify="$cnt_line_$path : $revision"
+					#else
+					#	checkout_modify="$checkout_modify\n$cnt_line_$path : $revision"
+					#fi						
+				fi
+			
+				if [ "$1" != "-n" ] && [ "$1" != "" ];then echo "git checkout $revision";fi
+				
+				if [ $f_SHA1 -eq 1 ];then #2023/04/23
+					git -C "$path" cat-file -t$revision >/dev/null 2>&1
+					if [ $? -eq 128 ];then #128为找不到SHA1，需要git fetch一下
+						f_fetch=1
+						git -C "$path" fetch>/dev/null 2>&1
+					fi		
+				fi
+				
+				if [ $f_force_sync = 1 ] && [ $f_modify = 1 ];then # && ([ "$1" != "-n" ] && [ "$1" != "" ])
+					if [ `git -C "$path" reflog 2>/dev/null|wc -l` -le 20 ];then
+						git -C "$path" reflog expire --expire-unreachable=now --all #清除不能到达的reflog记录						
+					else
+						git -C "$path" reflog expire --all --expire=now #清除所有reflog记录
+						#git gc --prune=now #强制垃圾回收
+					fi
+					git -C "$path" stash>/dev/null #缓存本地修改，同时恢复文件。贮藏条目
+					stash_list=`git -C "$path" stash list 2>/dev/null`
+					if [ "$stash_list" != "" ];then
+						stash="\t[stash]"
+						echo "$stash_list"
+						echo -e "\033[33m
+git stash list #查看贮藏条目
+git stash pop [--index] #恢复贮藏条目，一条条恢复。
+git stash pop stash@{0} #恢复贮藏条目，stash@{0}为更换为您需要的位置
+git stash clear #清除贮藏条目
+git stash --help #stash更多帮助
+\033[0m" #黄色
+					fi
+					git -C "$path" checkout $revision -f #强制切换，清除修改。
+					#git -C "$path" checkout . >/dev/null
+				else
+					if [ $f_path_create -eq 1 ];then #f_path_create=1 为仓库目录被完全删除，当作全新下载，不作为被修改。
+						git -C "$path" checkout $revision . #强制切换，清除修改。
+					elif [ "$1" != "-n" ] && [ "$1" != "" ];then						
+						#if [ $f_path_create -eq 1 ];then #f_path_create=1 为仓库目录被完全删除，当作全新下载，不作为被修改。
+						#	git -C "$path" checkout $revision . #强制切换，清除修改。
+						#else
+							git -C "$path" checkout $revision #2>/dev/null #不使用 . 或 -f #强制切换，清除修改。#默认执行此行。
+						#fi
+					else
+						:
+					fi
+				fi				
+				flag=$? #学习：特别注意 $? 不能多次使用，如 [ $? -eq 非0数字 ] 条件格式返回都是1，
+
+				#git -C "$path" checkout $revision -f #强制切换，清除修改。
+				#git -C "$path" checkout . #强制切换，清除修改。
+				if [ $flag -eq 128 ];then
+					init_clone
+				elif [ $flag -eq 1 ];then #上述checkout失败才执行
+					#if [ "$1" != "-l" ];then git -C "$path" fetch;fi
+					if [ $f_modify = 1 ];then
+						if [ `git -C "$path" reflog 2>/dev/null|wc -l` -le 20 ];then
+							git -C "$path" reflog expire --expire-unreachable=now --all #清除不能到达的reflog记录						
+						else
+							git -C "$path" reflog expire --all --expire=now #清除所有reflog记录
+							#git gc --prune=now #强制垃圾回收
+						fi
+						git -C "$path" stash>/dev/null #缓存本地修改，同时恢复文件。
+						stash_list=`git -C "$path" stash list 2>/dev/null`
+						if [ "$stash_list" != "" ];then
+						stash="\t[stash]"
+						echo "$stash_list"
+						echo -e "\033[32m
+git stash list #查看修改缓存
+git stash pop [--index] #恢复修改缓存，一条条恢复。
+git stash pop stash@{0} #恢复修改缓存，stash@{0}为更换为您需要的位置
+git stash clear #清除修改缓存
+git stash --help #stash更多帮助
+\033[0m" #绿色
+						fi
+					fi
+					
+					git -C "$path" fetch #可以修复因未更新导致找不到的错误。#2023/04/23
+					git -C "$path" checkout $revision
+					if [ $? -eq 1 ];then
+						#git branch 2>/dev/null #为空
+						#git log -1 2>/dev/null #$?=128
+						if [ "`git -C "$path" branch 2>/dev/null`" = "" ];then #无本地分支等出错，重新克隆。
+							git -C "$path" branch 2>/dev/null
+							if [ $? -eq 0 ];then
+								git -C "$path" log -1 2>/dev/null
+								if [ $? -eq 128 ];then
+									f_init_clone=1
+									re_cloned="\t[Has been re-cloned.]"
+									init_clone
+									#f_init_clone=0
+									#re_cloned=""
+									echo -e "\033[41mCheckout Error! Maybe repository config is error. And has been git clone once again.\033[0m"
+									sleep 2
+									continue
+								fi
+							fi
+						fi
+						
+						#git diff #跟踪文件修改时不为空。
+						if [ "`git -C "$path" status -s --untracked-files=no`" = "" ];then #跟踪文件修改时不为空。 -- 学习 --
+							git -C "$path" checkout $revision -f
+							echo -e "\033[41mCheckout Error! No untracked files. And has been git checkout force.\033[0m"
+							sleep 2
+						fi
+						if [ $? -ge 1 ];then
+							cnt_error=$((cnt_error + 1))
+							if [ "$checkout_error" = "" ];then
+								#checkout_error="$cnt_line_$path : $revision"
+								co_error="$cnt_line_$path"
+								checkout_error="`printf "%-50s" "$co_error"` [$revision]"
+							else
+								#checkout_error="$checkout_error\n$cnt_line_$path : $revision"
+								co_error="$cnt_line_$path"
+								checkout_error="$checkout_error\n`printf "%-50s" "$co_error"` [$revision]"
+							fi						
+							echo -e "\033[32m--== Checkout Error ==--\n\033[33m$path : [$revision]\n\033[35mPlease Run :\n\033[31mgit checkout $revision -f\033[0m"
+							#echo ------------------
+							sleep 2
+						fi
+					fi
+					if [ "$1" != "-l" ];then
+						#if [ ${#revision} -eq 40 ] || [[ "$revision" =~ ^[0-9a-f]+$ ]];then #40字符或只含有十六进制
+						if [ "$f_SHA1" = "1" ] || ([[ "$revision" =~ ^[0-9a-f]+$ ]] && [ ${#revision} -ge 4 ]);then #SHA1值
+							echo -e "revision: \033[36m$revision\033[0m"
+							git -C "$path" pull 2>/dev/null
+						else
+							git -C "$path" pull
+						fi
+					fi		
+				else
+					#git -C "$path" checkout .  #强制切换，清除修改。建议使用 git stash
+					#git -C "$path" stash>/dev/null #缓存本地修改，同时恢复文件。
+					#str=012ab950d
+					#if [[ "$str" =~ ^[0-9a-f]+$ ]];then echo "$str is 十六进制";fi #判断字符串只含有0-9和a-f的字符 学习
+					if [ "$1" != "-l" ];then
+						#if [ ${#revision} -eq 40 ] || [[ "$revision" =~ ^[0-9a-f]+$ ]];then #40字符或只含有十六进制
+						#echo $revision
+						SHA1=""
+						if [ $(git -C "$path" branch -r|grep "/`git  -C "$path" branch -a|grep '*'|cut -d " " -f 2`$"|wc -l) -eq 0 ];then #非分支名
+							f_branch=0
+							SHA1=`git -C "$path" log --pretty=format:%H -1`
+						else
+							f_branch=1
+						fi
+						
+						if [ "$f_branch" = "0" ] || [ "$f_SHA1" = "1" ] || ([[ "$revision" =~ ^[0-9a-f]+$ ]] && [ ${#revision} -ge 4 ]);then #SHA1值为存十六进制数
+							if [ "$f_branch" = "0" ] && [ "$SHA1" != "" ];then
+								echo -e "SHA1: \033[33m$SHA1\033[0m"
+							else
+								echo -e "revision: \033[36m$revision\033[0m"
+							fi
+							#if [ "$f_tag" != "1" ];then #初始化指向TAG，且为SHA1值时，可以不pull。
+							if [ "$f_SHA1" != "1" ] || [ $f_force_sync = 1 ];then #非SHA1或加-f时要pull #SHA1值时，前面已经判断是否git fetch，不pull。
+								git -C "$path" pull 2>/dev/null
+							fi
+						else #一般情况同步
+							git -C "$path" pull
+						fi
+					fi
+					#if [ "$f_modify" = "1" ];then echo -e "\033[34m--== $path : Is Modified ==--\n*****************************************************************\033[0m";sleep 1;fi
+				fi
+			fi
+			if [ "$f_modify" = "1" ] ;then #有变更 #跟踪文件修改时不为空。				
+				cnt_modify=$((cnt_modify + 1))
+				if [ "$checkout_modify" = "" ];then
+					#checkout_modify="$cnt_line_$path : $revision$stash"
+					co_modify="$cnt_line_$path"
+					checkout_modify="`printf "%-50s" "$co_modify"` [$revision]$stash" #$co_modify 长度50右补空格
+				else
+					#checkout_modify="$checkout_modify\n$cnt_line_$path : $revision$stash"
+					co_modify="$cnt_line_$path"
+					checkout_modify="$checkout_modify\n`printf "%-50s" "$co_modify"` [$revision]$stash" #$co_modify 长度50右补空格
+				fi
+				stash=""
+				echo -e "\033[34m--== $path : Is Modified ==--\n*****************************************************************\033[0m";sleep 1
+			fi			
+		else
+			init_clone			
+		fi
+		if [ "$cnt_line" != "$cnt_lines" ];then echo -----------------;fi
+	else
+		if [ "$line" = "" ];then line="[NULL]";fi
+		if [[ "$line" != "#Default Remote:"* ]]&&[[ "$line" != "## --- END --- ##"* ]];then echo -e "\033[1m\033[33m$line :\033[32m Do not clone.\033[0m";fi #$cnt_line/$cnt_lines #黄色高亮 #Modify 2025.01.09
+	fi
+done<$gitconf
+}
+
+SYNC_Start=`date +'%Y/%m/%d %H:%M:%S'`
+SYNC $*
+SYNC_Over=`date +'%Y/%m/%d %H:%M:%S'`
+
+remote="$remote0" #恢复变量remote值
+if [ "$checkout_modify" != "" ];then
+	echo
+	echo -e "\033[1m\033[32m====================================\033[0m"
+	echo -e "\033[1m\033[31m[ Modified Repositories : $cnt_modify ]\033[0m"
+	echo -e "\033[35m$checkout_modify\033[0m"
+	echo
+fi
+if [ $cnt_error -gt 0 ];then
+	echo -e "\033[1m\033[33m====================================\033[0m"
+	echo -e "\033[1m\033[31m[ Checkout Error : $cnt_error ]\033[0m"
+	echo -e "\033[34m$checkout_error\033[0m"
+	echo
+fi
+if [ "$checkout_modify" != "" ] || [ $cnt_error -gt 0 ];then
+	:
+else
+	echo
+fi
+echo -e "\033[1m\033[43mSYNC: $SYNC_Start --- $SYNC_Over\033[0m\n" #黄色底白字
+
+exit
+
+
+#=========== END LINE ===========
+
+### .gitbare/.gitbare.conf 内容格式 ###
+
+#Default Remote:git@bitbucket.org:faurepo
+src/uboot	project-uboot	develop
+build	project-build	master
+cp -f build/shell_1.sh shell_1.sh
+ln -s -f build/shell_2.sh shell_2
+build/manifest	project-build-manifest	master
+
+
+######################################
+
+
+
+while read -r line;do
+	name="";path="";revision=""
+	line1=`echo "$line"|grep -w "<project name="|head -1`
+	if [ "$line1" != "" ];then
+		name=`echo "$line1"|awk -F ' name="' '{print $2}'|awk -F '"' '{print $1}'` #master 分支名		
+		if [ "$name" != "" ];then
+			path=`echo "$line1"|awk -F ' path="' '{print $2}'|awk -F '"' '{print $1}'`
+			if [ "$path" = "" ];then
+				path=$name
+			fi
+			revision=`echo "$line1"|awk -F ' revision="' '{print $2}'|awk -F '"' '{print $1}'`
+			if [ "$revision" = "" ];then
+				revision=$default_revision
+			fi
+			if [ "${name: -1}" = "/" ];then name=${name::-1};fi
+			if [ "${path: -1}" = "/" ];then path=${path::-1};fi
+			#echo $name $path $revision
+			#url=`git -C $path ls-remote --get-url $(git -C $path remote)`
+			#if [ -d "$path/.git" ] && [ "$url" = "$remote/$name" ];then
+			url=`git -C ".gitbare/$path.git" ls-remote --get-url $(git -C ".gitbare/$path.git" remote 2>/dev/null) 2>/dev/null`
+			if [ -d ".gitbare/$path.git" ] && [ "$url" = "$remote/$name" ];then
+				if [ ! -d "$path/.git" ];then
+					mkdir -p $path									
+					if [ "$path" = "" ];then
+						cnt_=0
+					else
+						cnt_=`echo "$path/.git" | awk -F"/" '{print NF-1}'`
+					fi
+					relative_path=""
+					for((i=1;i<=cnt_;i++));do relative_path=$relative_path../;done
+					mkdir -p $path
+					echo ln -s -f $relative_path.gitbare/$path.git $path/.git
+					ln -s -f $relative_path.gitbare/$path.git $path/.git
+				fi
+				echo -e "\033[1m\033[31m$path:\033[0m" #红色高亮
+				echo -e "$path\t$name\t$revision">>$gitconf
+				#git -C "$path" stash>/dev/null #缓存本地修改，同时恢复文件。
+				echo "git checkout $revision"				
+				git -C "$path" checkout $revision				
+				#git -C "$path" checkout $revision -f #强制切换，清除修改。
+				#git -C "$path" checkout . #强制切换，清除修改。
+				git -C "$path" pull 2>/dev/null
+			else #不存在强制清除
+				##if [ "$path" != "" ] &&  [ -d "$path" ];then					
+				##	rm -rf ./src_bak/$path
+				##	mkdir -p ./src_bak/$path					
+				##	cp -af $path/* ./src_bak/$path
+				##	#cp -rf $path/.* ./src_bak/$path
+				##	rm -rf $path
+				##fi
+				rm -rf .gitbare/$path.git
+				echo -e "\033[1m\033[31m$path:\033[0m" #红色高亮
+				echo -e "$path\t$name\t$revision">>$gitconf
+				#echo git clone -b $revision $remote/$name $path
+				#git clone -b $revision $remote/$name $path				
+				echo git clone --bare -b $revision $remote/$name .gitbare/$path.git
+				git clone --bare -b $revision $remote/$name .gitbare/$path.git
+				mkdir -p $path					
+				if [ "$path" = "" ];then
+					cnt_=0
+				else
+					cnt_=`echo "$path/.git" | awk -F"/" '{print NF-1}'`
+				fi
+				relative_path=""
+				for((i=1;i<=cnt_;i++));do relative_path=$relative_path../;done
+				mkdir -p $path
+				echo ln -s -f $relative_path.gitbare/$path.git $path/.git
+				ln -s -f $relative_path.gitbare/$path.git $path/.git
+				#git -C $path remote
+				origin=`git -C "$path" remote`
+				git -C "$path" config --unset core.bare #或 git -C $path init
+				git -C "$path" config branch.$revision.remote $origin
+				git -C "$path" config branch.$revision.merge refs/heads/$revision
+				git -C "$path" config remote.$origin.fetch +refs/heads/*:refs/remotes/$origin/*
+				rm -f .gitbare/$path.git/packed-refs
+				git -C "$path" reset
+
+				echo git -C "$path" pull
+				git -C "$path" pull 2>/dev/null
+				#if [ "$url" != "$remote/$name" ];then #不要clean，会误删
+				#	git -C $path clean -df
+				#fi
+				
+				#git -C $path checkout $revision
+				#if [ $? -eq 1 ];then
+				#	git -C $path clean -df
+				#	git -C $path checkout $revision
+				#fi
+				echo git -C "$path" checkout $revision
+				git -C "$path" checkout $revision -f #强制切换
+			fi
+		fi
+	fi
+done<$xml
+
+#git push -u
+#git branch --set-upstream-to=origin/develop develop
+#git clone --bare "ssh://chen-yingru@10.173.226.119:29418/8155R/platform/prebuilts/tools" .gitbare/8155R/platform/prebuilts/tools.git
+#git clone --bare git@bitbucket.org:faurepo/emi23sda-build .gitbare/build.git
+#mkdir -p build
+#ln -s -f ../.gitbare/build.git build/.git
+#ln -s -f ../.gitbare/emi23sda-build.git build/.git
+#git config --unset core.bare
+#git init
+#[core]
+#	repositoryformatversion = 0
+#	filemode = true
+#[filter "lfs"]
+#	smudge = git-lfs smudge --skip -- %f
+#	process = git-lfs filter-process --skip
+#[remote "origin"]
+#	url = git@bitbucket.org:faurepo/eho25sa-build
+#	review = https://bitbucket.org
+#	projectname = eho25sa-build
+#	fetch = +refs/heads/*:refs/remotes/origin/*
+
+#FORALL -c 'echo -e `if [ "${path::1}" = "#" ];then echo $line;else echo "$path\t$name\t$(git log -1 --pretty=format:%H 2>/dev/null||echo $revision)$(if [ "$remote_url" = "" ];then echo "";else echo "\t$remote_url";fi)";fi`>>$release_xml' #'"$release_xml" #学习 $(条件语句) #高级用法
+
+#str=012ab950d
+#if [[ "$str" =~ ^[0-9a-f]+$ ]];then echo "$str is 十六进制";fi #判断字符串只含有0-9和a-f的字符 学习
+
+git describe --tags --abbrev=0 #获取当前所在分支最近的tag名称
+#git describe --tags --abbrev=0|xargs git rev-parse --abbrev-ref #节点上分支名
+git rev-parse --abbrev-ref HEAD #获取当前节点HEAD显示的分支名称|没有分支显示HEAD
+#export LANG=zh_CN.UTF-8 #中文
+LANG0=`echo $LANG`
+export LANG=C #英文
+git remote show `git remote`|grep 'HEAD branch'|cut -d' ' -f5 #获取远端默认分支 #获取远端默认分支 - 学习 -
+origin_default_branch=`git -C $gitbare_manifests remote show $(git -C $gitbare_manifests remote)|grep 'HEAD branch'|cut -d' ' -f5` #获取远端默认分支 - 学习 -
+export LANG=$LANG0
